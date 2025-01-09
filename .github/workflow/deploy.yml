@@ -1,0 +1,51 @@
+name: CI/CD Pipeline for EC2
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 코드를 체크아웃
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. Java와 빌드 도구 설정
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11' # 사용 중인 JDK 버전에 맞게 설정
+          distribution: 'temurin'
+
+      # 3. Maven 또는 Gradle로 빌드
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      # 4. SSH 키 생성
+      - name: Set up SSH key
+        run: |
+          echo "$EC2_PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+
+      # 5. 빌드된 JAR 파일 전송
+      - name: Deploy JAR to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          scp -i private_key.pem -o StrictHostKeyChecking=no target/*.jar ubuntu@${EC2_HOST}:/home/ubuntu/app/
+
+      # 6. EC2에서 애플리케이션 실행
+      - name: Start Spring Boot Application
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ubuntu@${EC2_HOST} << EOF
+            pkill -f 'java -jar' || true
+            nohup java -jar /home/ubuntu/app/*.jar > /home/ubuntu/app/app.log 2>&1 &
+          EOF
